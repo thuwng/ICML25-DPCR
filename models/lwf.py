@@ -370,7 +370,7 @@ class LwF(BaseLearner):
             scheduler.step()
             train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
 
-            if epoch % 25 == 0:
+            if epoch % 20 == 0:
                 test_acc = self._compute_accuracy(self._network, test_loader)
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
                     self._cur_task,
@@ -427,7 +427,7 @@ class LwF(BaseLearner):
 
             scheduler.step()
             train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
-            if epoch % 25 == 0:
+            if epoch % 20 == 0:
                 test_acc = self._compute_accuracy(self._network, test_loader)
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
                     self._cur_task,
