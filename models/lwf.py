@@ -456,7 +456,7 @@ class LwF(BaseLearner):
                     delta_out = {name: (p.detach() - theta_t[name]) for name, p in self._network.named_parameters()}
 
                     # TASK VECTOR UPDATE
-                    self.update_parameters_with_task_vectors(theta_t, delta_in, delta_out, optimizer)
+                    self.update_parameters_with_task_vectors(theta_t, delta_in, delta_out)
 
                     losses += kd_loss.item()
                     batch_idx += 1
@@ -510,10 +510,7 @@ class LwF(BaseLearner):
                 updated = theta_t[name] + inner_mask[name] * delta_in[name] + outer_mask[name] * delta_out[name]
                 p.copy_(updated)
 
-        # 🔑 Reset optimizer state để tránh mismatch (Adam có m/v buffer)
-        if optimizer is not None:
-            for state in optimizer.state.values():
-                state.clear()
+       
 
 def _KD_loss(student_logits, teacher_logits, T=2.0):
     return F.kl_div(
