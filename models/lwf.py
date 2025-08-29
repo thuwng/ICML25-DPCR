@@ -17,14 +17,14 @@ from utils.autoaugment import CIFAR10Policy
 
 
 init_epoch = 200
-init_lr = 0.1
+init_lr = 0.001 #Momentum->Adam
 init_milestones = [60, 120, 160]
 init_lr_decay = 0.1
 init_weight_decay = 0.0005
 
 # cifar100
 epochs = 100
-lrate = 0.05
+lrate = 0.0005 #Momentum->Adam
 milestones = [45, 90]
 lrate_decay = 0.1
 batch_size = 128
@@ -65,13 +65,27 @@ lamda = 10
 
 EPSILON = 1e-8
 
+class IPTScore:
+    def __init__(self, model):
+        self.model = model
+        self.inner_score = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
+        self.outer_score = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
+
+    def calculate_score_inner(self, metric="ipt"):
+        # Ở bản đơn giản nhất, inner_mask = 0.5 hết
+        return {n: torch.ones_like(p) * 0.5 for n, p in self.model.named_parameters()}
+
+    def calculate_score_outer(self, metric="ipt"):
+        # Outer mask mặc định = 0.5 hết
+        return {n: torch.ones_like(p) * 0.5 for n, p in self.model.named_parameters()}
+
 class LwF(BaseLearner):
     def __init__(self, args):
         super().__init__(args)
         self.args = args
         if self.args["dataset"] == "imagenet100" or self.args["dataset"] == "imagenet1000":
             epochs = 100
-            lrate = 0.05
+            lrate = 0.05 #chỉnh cho phù hợp với Adam
             milestones = [45, 90]
             lrate_decay = 0.1
             batch_size = 128
@@ -106,6 +120,9 @@ class LwF(BaseLearner):
         if self.args["DPCR"]:
             self._covs = []
             self._projectors = []
+        self._old_network = None #xem lại
+        self.ipt_score = IPTScore(self._network)
+        self.T = args.get("T", 2.0)
 
     def after_task(self):
         self._old_network = self._network.copy().freeze()
@@ -193,7 +210,7 @@ class LwF(BaseLearner):
             if hasattr(self._network, "module"):
                 self._network_module_ptr = self._network.module
             if not resume:
-                optimizer = optim.SGD(self._network.parameters(), momentum=0.9, lr=init_lr, weight_decay=init_weight_decay)
+                optimizer = optim.AdamW(self._network.parameters(), lr=init_lr, weight_decay=init_weight_decay)
                 scheduler = optim.lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=init_milestones, gamma=init_lr_decay)
                 self._init_train(train_loader, test_loader, optimizer, scheduler)
 
@@ -231,7 +248,7 @@ class LwF(BaseLearner):
             if self._old_network is not None:
                 self._old_network.to(self._device)
             if not resume:
-                optimizer = optim.SGD(self._network.parameters(), lr=lrate, momentum=0.9, weight_decay=weight_decay)
+                optimizer = optim.AdamW(self._network.parameters(), lr=lrate, weight_decay=weight_decay)
                 scheduler = optim.lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=milestones, gamma=lrate_decay)
                 self._update_representation(train_loader, test_loader, optimizer, scheduler)
             self._build_protos()                
@@ -292,10 +309,9 @@ class LwF(BaseLearner):
                 Delta = R_inv @ self.al_classifier.Q
                 self.al_classifier.fc.weight = torch.nn.parameter.Parameter(
                         F.normalize(torch.t(Delta.float()), p=2, dim=-1))
-
-
-
-
+            
+        test_acc = self._compute_accuracy(self._network,test_loader)
+        print(f"Task {self._cur_task} finished → Test Acc: {test_acc:.2f}%")
 
     # SVD for calculating the W_c
     def get_projector_svd(self, raw_matrix, all_non_zeros=True):
@@ -369,41 +385,85 @@ class LwF(BaseLearner):
 
         logging.info(info)
 
-    def _update_representation(self, train_loader, test_loader, optimizer, scheduler):
-
+    def _update_representation(self, train_loader, test_loader, optimizer, scheduler): 
         prog_bar = tqdm(range(epochs))
-        for _, epoch in enumerate(prog_bar):
+        for epoch in prog_bar:
             self._network.train()
             losses = 0.0
             correct, total = 0, 0
-            for i, (_, inputs, targets) in enumerate(train_loader):
-                inputs, targets = inputs.to(self._device), targets.to(self._device)
-                logits = self._network(inputs)["logits"]
 
-                fake_targets = targets - self._known_classes
-                loss_clf = F.cross_entropy(
-                    logits[:, self._known_classes :], fake_targets
-                )
-                loss_kd = _KD_loss(
-                    logits[:, : self._known_classes],
-                    self._old_network(inputs)["logits"],
-                    T,
-                )
+            # lưu tham số gốc theta_t
+            theta_t = {name: p.clone().detach() for name, p in self._network.named_parameters()}
 
-                loss = lamda * loss_kd + loss_clf
+            data_iter = iter(train_loader)
+            batch_idx = 0
 
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                losses += loss.item()
+            for cycle in range(32):  # lặp 32 lần
+                # === 4 bước INNER ===
+                for _ in range(4):
+                    try:
+                        _, inputs, targets = next(data_iter)
+                    except StopIteration:
+                        data_iter = iter(train_loader)
+                        _, inputs, targets = next(data_iter)
 
-                with torch.no_grad():
-                    _, preds = torch.max(logits, dim=1)
-                    correct += preds.eq(targets.expand_as(preds)).cpu().sum()
-                    total += len(targets)
+                    inputs, targets = inputs.to(self._device), targets.to(self._device)
+
+                    student_outputs = self._network(inputs)["logits"]
+                    fake_targets = targets - self._known_classes
+                    loss_inner = F.cross_entropy(student_outputs[:, self._known_classes:], fake_targets)
+
+                    optimizer.zero_grad()
+                    loss_inner.backward(retain_graph=True)
+                    optimizer.step()
+
+                    # delta_in
+                    delta_in = {name: (p.detach() - theta_t[name]) for name, p in self._network.named_parameters()}
+
+                    losses += loss_inner.item()
+                    with torch.no_grad():
+                        _, preds = torch.max(student_outputs, dim=1)
+                        correct += preds.eq(targets).cpu().sum().item()
+                        total += targets.size(0)
+                    batch_idx += 1
+                    if batch_idx >= len(train_loader):
+                        break
+                # === 1 bước OUTER ===
+                for _ in range(1):
+                    try:
+                        _, inputs, targets = next(data_iter)
+                    except StopIteration:
+                        data_iter = iter(train_loader)
+                        _, inputs, targets = next(data_iter)
+
+                    inputs, targets = inputs.to(self._device), targets.to(self._device)
+
+                    if self._old_network is None:
+                        raise RuntimeError("No teacher network for KD")
+                    with torch.no_grad():
+                        teacher_outputs = self._old_network(inputs)["logits"]
+
+                    student_outputs = self._network(inputs)["logits"]
+                    kd = _KD_loss(student_outputs[:, :self._known_classes], teacher_outputs, self.T)
+                    fake_targets = targets - self._known_classes
+                    ce_loss = F.cross_entropy(student_outputs[:, self._known_classes:], fake_targets)
+                    kd_loss = 10 * kd + ce_loss
+                    optimizer.zero_grad()
+                    kd_loss.backward()
+                    optimizer.step()
+
+                    # delta_out
+                    delta_out = {name: (p.detach() - theta_t[name]) for name, p in self._network.named_parameters()}
+
+                    # TASK VECTOR UPDATE
+                    self.update_parameters_with_task_vectors(theta_t, delta_in, delta_out)
+
+                    losses += kd_loss.item()
+                    batch_idx += 1
 
             scheduler.step()
-            train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
+            train_acc = np.around(tensor2numpy(torch.tensor(correct)) * 100 / total, decimals=2)
+            
             if epoch % 25 == 0:
                 test_acc = self._compute_accuracy(self._network, test_loader)
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
@@ -425,7 +485,34 @@ class LwF(BaseLearner):
             prog_bar.set_description(info)
         logging.info(info)
 
-def _KD_loss(pred, soft, T):
-    pred = torch.log_softmax(pred / T, dim=1)
-    soft = torch.softmax(soft / T, dim=1)
-    return -1 * torch.mul(soft, pred).sum() / pred.shape[0]
+    def update_parameters_with_task_vectors(self, theta_t, delta_in, delta_out):
+        inner_mask = self.ipt_score.calculate_score_inner(metric="ipt")
+        outer_mask = self.ipt_score.calculate_score_outer(metric="ipt")
+
+        for k in inner_mask:
+            inner_mask[k] = inner_mask[k].to(self._device)
+            outer_mask[k] = outer_mask[k].to(self._device)
+
+            inner = inner_mask[k]
+            outer = outer_mask[k]
+            assert inner.shape == outer.shape
+
+            both_one = (inner == 1) & (outer == 1)
+            inner[both_one] = 0.4
+            outer[both_one] = 0.6
+
+            both_zero = (inner == 0) & (outer == 0)
+            inner[both_zero] = 0.5
+            outer[both_zero] = 0.5
+
+        with torch.no_grad():
+            for name, p in self._network.named_parameters():
+                updated = theta_t[name] + inner_mask[name] * delta_in[name] + outer_mask[name] * delta_out[name]
+                p.copy_(updated)
+
+def _KD_loss(student_logits, teacher_logits, T=2.0):
+    return F.kl_div(
+        F.log_softmax(student_logits / T, dim=-1),
+        F.softmax(teacher_logits / T, dim=-1),
+        reduction="batchmean"
+    ) * (T * T)
