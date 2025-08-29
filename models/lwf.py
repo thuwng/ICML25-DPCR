@@ -456,7 +456,7 @@ class LwF(BaseLearner):
                     delta_out = {name: (p.detach() - theta_t[name]) for name, p in self._network.named_parameters()}
 
                     # TASK VECTOR UPDATE
-                    self.update_parameters_with_task_vectors(theta_t, delta_in, delta_out)
+                    self.update_parameters_with_task_vectors(theta_t, delta_in, delta_out, optimizer)
 
                     losses += kd_loss.item()
                     batch_idx += 1
@@ -485,7 +485,7 @@ class LwF(BaseLearner):
             prog_bar.set_description(info)
         logging.info(info)
 
-    def update_parameters_with_task_vectors(self, theta_t, delta_in, delta_out):
+    def update_parameters_with_task_vectors(self, theta_t, delta_in, delta_out, optimizer=None):
         inner_mask = self.ipt_score.calculate_score_inner(metric="ipt")
         outer_mask = self.ipt_score.calculate_score_outer(metric="ipt")
 
