@@ -510,6 +510,11 @@ class LwF(BaseLearner):
                 updated = theta_t[name] + inner_mask[name] * delta_in[name] + outer_mask[name] * delta_out[name]
                 p.copy_(updated)
 
+        # 🔑 Reset optimizer state để tránh mismatch (Adam có m/v buffer)
+        if optimizer is not None:
+            for state in optimizer.state.values():
+                state.clear()
+
 def _KD_loss(student_logits, teacher_logits, T=2.0):
     return F.kl_div(
         F.log_softmax(student_logits / T, dim=-1),
