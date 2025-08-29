@@ -107,9 +107,6 @@ class LwF(BaseLearner):
             self._covs = []
             self._projectors = []
 
-        self.task_accuracies = []
-        self.total_tasks = 10
-
     def after_task(self):
         self._old_network = self._network.copy().freeze()
         self._known_classes = self._total_classes
@@ -117,9 +114,6 @@ class LwF(BaseLearner):
             if not os.path.exists(self.args["model_dir"]):
                 os.makedirs(self.args["model_dir"])
             self.save_checkpoint("{}".format(self.args["model_dir"]))
-
-        if self.total_tasks is not None and len(self.task_accuracies) == self.total_tasks:
-            self.report_metrics()
         
 
     def incremental_train(self, data_manager):
@@ -188,23 +182,6 @@ class LwF(BaseLearner):
         self._train(self.train_loader, self.test_loader)
         if len(self._multiple_gpus) > 1:
             self._network = self._network.module
-
-        # --- after finishing training for this incremental task, evaluate and store A_t ---
-        self._network.eval()
-        with torch.no_grad():
-            task_acc = self._compute_accuracy(self._network, self.test_loader)
-        # task_acc is expected to be percentage (as in your printing), if your _compute_accuracy returns fraction adjust accordingly
-        self.task_accuracies.append(float(task_acc))
-        logging.info("Recorded accuracy for task {} -> {:.2f}".format(self._cur_task, task_acc))
-
-        # optional: save per-task metrics to disk immediately
-        metrics_path = os.path.join(self.args["model_dir"], "incremental_metrics.txt")
-        with open(metrics_path, "w") as f:
-            for idx, acc in enumerate(self.task_accuracies):
-                f.write("Task {}: {:.4f}\n".format(idx, acc))
-            # compute running average so far
-            avg_so_far = sum(self.task_accuracies) / len(self.task_accuracies)
-            f.write("Average so far (A_avg over {} tasks): {:.4f}\n".format(len(self.task_accuracies), avg_so_far))
 
     def _train(self, train_loader, test_loader):
         resume = self.args['resume']  # set resume=True to use saved checkpoints
@@ -316,6 +293,9 @@ class LwF(BaseLearner):
                 self.al_classifier.fc.weight = torch.nn.parameter.Parameter(
                         F.normalize(torch.t(Delta.float()), p=2, dim=-1))
 
+        test_acc = self._compute_accuracy(self._network, test_loader)       
+        print(f"Task {self._cur_task} finished → Test Acc: {test_acc:.2f}%")
+
 
 
 
@@ -370,7 +350,7 @@ class LwF(BaseLearner):
             scheduler.step()
             train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
 
-            if epoch % 19 == 0:
+            if epoch % 25 == 0:
                 test_acc = self._compute_accuracy(self._network, test_loader)
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
                     self._cur_task,
@@ -427,7 +407,7 @@ class LwF(BaseLearner):
 
             scheduler.step()
             train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
-            if epoch % 19 == 0:
+            if epoch % 25 == 0:
                 test_acc = self._compute_accuracy(self._network, test_loader)
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
                     self._cur_task,
@@ -448,33 +428,7 @@ class LwF(BaseLearner):
             prog_bar.set_description(info)
         logging.info(info)
 
-    def report_metrics(self, save_path=None):
-        """
-            Compute and print final metrics:
-            - A_t saved in self.task_accuracies (list of floats)
-            - A_avg = mean(A_t)
-            - A_f = accuracy of last task (the most recent A_t)
-        """
-        if len(self.task_accuracies) == 0:
-            print("No task accuracies recorded yet.")
-            return None
 
-        A_f = float(self.task_accuracies[-1])
-        A_avg = float(sum(self.task_accuracies) / len(self.task_accuracies))
-        msg = "Final accuracy A_f: {:.4f}. Average incremental accuracy A_avg over {} tasks: {:.4f}".format(
-            A_f, len(self.task_accuracies), A_avg
-        )
-        print(msg)
-        logging.info(msg)
-
-        if save_path is None:
-            save_path = os.path.join(self.args["model_dir"], "final_metrics.txt")
-        with open(save_path, "w") as f:
-            f.write(msg + "\n")
-            f.write("Per-task accuracies:\n")
-            for i, a in enumerate(self.task_accuracies):
-                f.write("Task {}: {:.4f}\n".format(i, a))
-        return {"A_avg": A_avg, "A_f": A_f}
 
 
 def _KD_loss(pred, soft, T):
