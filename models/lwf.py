@@ -69,6 +69,7 @@ class LwF(BaseLearner):
     def __init__(self, args):
         super().__init__(args)
         self.args = args
+        self.incremental_accuracies = []
         if self.args["dataset"] == "imagenet100" or self.args["dataset"] == "imagenet1000":
             epochs = 100
             lrate = 0.05
@@ -115,24 +116,15 @@ class LwF(BaseLearner):
                 os.makedirs(self.args["model_dir"])
             self.save_checkpoint("{}".format(self.args["model_dir"]))
 
-        if not hasattr(self, "acc_list"):
-            self.acc_list = []
-
-        # Tính accuracy trên tập test hiện tại
         test_acc = self._compute_accuracy(self._network, self.test_loader)
-        self.acc_list.append(test_acc)
+        self.incremental_accuracies.append(test_acc)
+        logging.info(f"Task {self._cur_task} - Test Accuracy: {test_acc:.2f}%")
 
-        print(f"Task {self._cur_task} finished → Test Acc: {test_acc:.2f}%")
-
-        # Nếu đã train xong tất cả tasks thì in A_avg và A_f
-        total_tasks = (100 - self.args["init_cls"]) // self.args["increment"] + 1
-        if self._cur_task + 1 == total_tasks:
-            A_avg = np.mean(self.acc_list)
-            A_f = self.acc_list[-1]
-            print("=" * 50)
-            print(f"Average Incremental Accuracy (A_avg): {A_avg:.2f}%")
-            print(f"Final Accuracy (A_f): {A_f:.2f}%")
-            print("=" * 50)
+        if self._cur_task == self.args['num_tasks'] - 1:
+            avg_incremental_acc = np.mean(self.incremental_accuracies)
+            final_acc = test_acc
+            logging.info(f"Training completed - Average Incremental Accuracy: {avg_incremental_acc:.2f}%")
+            logging.info(f"Final Accuracy: {final_acc:.2f}%")
         
 
     def incremental_train(self, data_manager):
@@ -311,7 +303,6 @@ class LwF(BaseLearner):
                 Delta = R_inv @ self.al_classifier.Q
                 self.al_classifier.fc.weight = torch.nn.parameter.Parameter(
                         F.normalize(torch.t(Delta.float()), p=2, dim=-1))
-                
 
 
 
