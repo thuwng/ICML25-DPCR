@@ -144,8 +144,8 @@ class iTinyImageNet200(iData):
 
     def download_data(self):
         # assert 0, "You should specify the folder of your dataset"
-        train_dir = "../../data/tiny-imagenet-200/train/"
-        test_dir = "../../data/tiny-imagenet-200/val/"
+        train_dir = "../../tiny-imagenet-200/train/"
+        test_dir = "../../tiny-imagenet-200/val/"
 
         train_dset = datasets.ImageFolder(train_dir)
         test_dset = datasets.ImageFolder(test_dir)
