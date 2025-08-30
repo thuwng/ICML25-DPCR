@@ -116,7 +116,7 @@ class LwF(BaseLearner):
             self.save_checkpoint("{}".format(self.args["model_dir"]))
 
         if not hasattr(self, "acc_list"):
-        self.acc_list = []
+            self.acc_list = []
 
         # Tính accuracy trên tập test hiện tại
         test_acc = self._compute_accuracy(self._network, self.test_loader)
