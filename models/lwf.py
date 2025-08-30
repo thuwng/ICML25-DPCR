@@ -16,14 +16,14 @@ from torchvision import datasets, transforms
 from utils.autoaugment import CIFAR10Policy
 
 
-init_epoch = 200
+init_epoch = 2
 init_lr = 0.1
 init_milestones = [60, 120, 160]
 init_lr_decay = 0.1
 init_weight_decay = 0.0005
 
 # cifar100
-epochs = 100
+epochs = 1
 lrate = 0.05
 milestones = [45, 90]
 lrate_decay = 0.1
@@ -113,7 +113,7 @@ class LwF(BaseLearner):
         logging.info(f"Task {self._cur_task} finished, At = {test_acc:.2f}%")
 
         # Nếu đây là task cuối cùng thì Af chính là At này
-        if self._cur_task == self.args["tasks"] - 1:   # giả sử self.args["tasks"] = tổng số task T
+        if self._cur_task == 9 or self._cur_task == 19:   
             logging.info(f"Final accuracy (Af) = {test_acc:.2f}%")
 
         self._old_network = self._network.copy().freeze()
