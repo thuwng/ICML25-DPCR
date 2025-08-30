@@ -108,14 +108,6 @@ class LwF(BaseLearner):
             self._projectors = []
 
     def after_task(self):
-        # Tính At = accuracy sau khi train xong task hiện tại
-        test_acc = self._compute_accuracy(self._network, self.test_loader)
-        logging.info(f"Task {self._cur_task} finished, At = {test_acc:.2f}%")
-
-        # Nếu đây là task cuối cùng thì Af chính là At này
-        if self._cur_task == 9 or self._cur_task == 19:   
-            logging.info(f"Final accuracy (Af) = {test_acc:.2f}%")
-
         self._old_network = self._network.copy().freeze()
         self._known_classes = self._total_classes
         if not self.args['resume']:
@@ -300,6 +292,15 @@ class LwF(BaseLearner):
                 Delta = R_inv @ self.al_classifier.Q
                 self.al_classifier.fc.weight = torch.nn.parameter.Parameter(
                         F.normalize(torch.t(Delta.float()), p=2, dim=-1))
+                
+        # Tính At = accuracy sau khi train xong task hiện tại
+        test_acc = self._compute_accuracy(self._network, self.test_loader)
+        logging.info(f"Task {self._cur_task} finished, At = {test_acc:.2f}%")
+
+        # Nếu đây là task cuối cùng thì Af chính là At này
+        if self._cur_task == 9 or self._cur_task == 19:   
+            logging.info(f"Final accuracy (Af) = {test_acc:.2f}%")
+
 
 
 
