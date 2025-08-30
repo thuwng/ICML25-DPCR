@@ -295,11 +295,12 @@ class LwF(BaseLearner):
                 
         # Tính At = accuracy sau khi train xong task hiện tại
         test_acc = self._compute_accuracy(self._network, self.test_loader)
-        logging.info(f"Task {self._cur_task} finished, At = {test_acc:.2f}%")
+        print(f"Task {self._cur_task} finished, At = {test_acc:.2f}%")
 
         # Nếu đây là task cuối cùng thì Af chính là At này
         if self._cur_task == 9 or self._cur_task == 19:   
-            logging.info(f"Final accuracy (Af) = {test_acc:.2f}%")
+            print(f"Final accuracy (Af) = {test_acc:.2f}%")
+
 
 
 
