@@ -114,6 +114,25 @@ class LwF(BaseLearner):
             if not os.path.exists(self.args["model_dir"]):
                 os.makedirs(self.args["model_dir"])
             self.save_checkpoint("{}".format(self.args["model_dir"]))
+
+        if not hasattr(self, "acc_list"):
+        self.acc_list = []
+
+        # Tính accuracy trên tập test hiện tại
+        test_acc = self._compute_accuracy(self._network, self.test_loader)
+        self.acc_list.append(test_acc)
+
+        print(f"Task {self._cur_task} finished → Test Acc: {test_acc:.2f}%")
+
+        # Nếu đã train xong tất cả tasks thì in A_avg và A_f
+        total_tasks = (100 - self.args["init_cls"]) // self.args["increment"] + 1
+        if self._cur_task + 1 == total_tasks:
+            A_avg = np.mean(self.acc_list)
+            A_f = self.acc_list[-1]
+            print("=" * 50)
+            print(f"Average Incremental Accuracy (A_avg): {A_avg:.2f}%")
+            print(f"Final Accuracy (A_f): {A_f:.2f}%")
+            print("=" * 50)
         
 
     def incremental_train(self, data_manager):
@@ -292,9 +311,7 @@ class LwF(BaseLearner):
                 Delta = R_inv @ self.al_classifier.Q
                 self.al_classifier.fc.weight = torch.nn.parameter.Parameter(
                         F.normalize(torch.t(Delta.float()), p=2, dim=-1))
-
-        test_acc = self._compute_accuracy(self._network, test_loader)       
-        print(f"Task {self._cur_task} finished → Test Acc: {test_acc:.2f}%")
+                
 
 
 
