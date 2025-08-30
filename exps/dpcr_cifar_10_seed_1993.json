@@ -1,9 +1,9 @@
 {
-    "prefix": "dpcr_cifar_10_seed_1993",
+    "prefix": "dpcr_cifar_10_seed_nonshuffle",
     "dataset": "cifar100",
     "memory_size": 0,
     "fixed_memory": false,
-    "shuffle": true,
+    "shuffle": false,
     "cosine": true,
     "init_cls": 10,
     "increment": 10,
@@ -13,7 +13,7 @@
     "device": ["0"],
     "seed": [1993],
     "resume": false,
-    "model_dir": "save_model/cifar100/dpcr_cifar_10_seed_1993/",
+    "model_dir": "save_model/cifar100/dpcr_cifar_10_seed_nonshuffle/",
     "DPCR": true,
     "rg": 200,
     "rg_tssp": 1e-9
