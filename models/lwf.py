@@ -16,14 +16,14 @@ from torchvision import datasets, transforms
 from utils.autoaugment import CIFAR10Policy
 
 
-init_epoch = 2
+init_epoch = 200
 init_lr = 0.1
 init_milestones = [60, 120, 160]
 init_lr_decay = 0.1
 init_weight_decay = 0.0005
 
 # cifar100
-epochs = 1
+epochs = 100
 lrate = 0.05
 milestones = [45, 90]
 lrate_decay = 0.1
@@ -69,7 +69,6 @@ class LwF(BaseLearner):
     def __init__(self, args):
         super().__init__(args)
         self.args = args
-        self.incremental_accuracies = []
         if self.args["dataset"] == "imagenet100" or self.args["dataset"] == "imagenet1000":
             epochs = 100
             lrate = 0.05
@@ -115,16 +114,6 @@ class LwF(BaseLearner):
             if not os.path.exists(self.args["model_dir"]):
                 os.makedirs(self.args["model_dir"])
             self.save_checkpoint("{}".format(self.args["model_dir"]))
-
-        test_acc = self._compute_accuracy(self._network, self.test_loader)
-        self.incremental_accuracies.append(test_acc)
-        logging.info(f"Task {self._cur_task} - Test Accuracy: {test_acc:.2f}%")
-
-        if self._cur_task == self.args['num_tasks'] - 1:
-            avg_incremental_acc = np.mean(self.incremental_accuracies)
-            final_acc = test_acc
-            logging.info(f"Training completed - Average Incremental Accuracy: {avg_incremental_acc:.2f}%")
-            logging.info(f"Final Accuracy: {final_acc:.2f}%")
         
 
     def incremental_train(self, data_manager):
@@ -435,9 +424,6 @@ class LwF(BaseLearner):
                 )
             prog_bar.set_description(info)
         logging.info(info)
-
-
-
 
 def _KD_loss(pred, soft, T):
     pred = torch.log_softmax(pred / T, dim=1)
